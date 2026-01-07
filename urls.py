@@ -1,23 +1,21 @@
-# dashboard/urls.py
-from django.urls import path
-from . import views
+from django.contrib import admin
+from django.urls import path, include
+from django.contrib.auth.views import LogoutView
+from dashboard import views as dashboard_views
 
 urlpatterns = [
-    # Main dashboard
-    path("", views.dashboard_view, name="dashboard"),
+    path("admin/", admin.site.urls),
 
-    # JSON APIs for charts & detail views
-    path("api/kpi-data/", views.kpi_data, name="kpi_data"),
-    path("api/station-equipment-detail/", views.station_equipment_detail, name="station_equipment_detail"),
+    # 1) Put the custom logout FIRST so it wins the match:
+    path("accounts/logout/", LogoutView.as_view(next_page="login"), name="logout"),
 
-    # Prediction APIs
-    path("api/site-predictions/", views.site_predictions, name="site_predictions"),  # JSON + CSV
-    path("api/site-predict-simulate/", views.site_predict_simulate, name="site_predict_simulate"),  # NEW — what-if
-    path("api/site-predict-meta/", views.site_predict_meta, name="site_predict_meta"),  # NEW — model meta
+    # 2) Then include all the built-in auth routes (login, password reset, etc.)
+    path("accounts/", include("django.contrib.auth.urls")),
 
-    # Data health check
-    path("data-health/", views.data_health, name="data_health"),
+    # Dashboard
+    path("", dashboard_views.dashboard_view, name="dashboard"),
+    path("kpi-data/", dashboard_views.kpi_data, name="kpi_data"),
+    path("", include("dashboard.urls")),
+    path("download-excel/", dashboard_views.download_excel, name="download_excel"),
 
-    # Downloads
-    path("download/excel/", views.download_excel, name="download_excel"),
 ]
