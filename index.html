@@ -1,0 +1,1169 @@
+{% load static %}
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <title>Tableau de bord KPI – SNRT</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    :root{
+      --snrt-green:#228B22;
+      --snrt-red:#CD5C5C;
+      --snrt-orange:#FF8C00;
+      --snrt-blue:#4169E1;
+
+      --text:#111827;
+      --muted:#6B7280;
+      --bg-grad-1:#f7f9fc;
+      --bg-grad-2:#eef3f9;
+
+      --glass-bg: rgba(255,255,255,0.72);
+      --glass-border: rgba(0,0,0,0.08);
+      --shadow: 0 10px 30px rgba(0,0,0,.08);
+
+      --btn-outline:#D1D5DB;
+      --sticky-bg: #ffffffcc; /* NEW: better sticky background (light) */
+    }
+    html[data-theme="dark"]{
+      --text:#E5E7EB;
+      --muted:#9CA3AF;
+      --bg-grad-1:#0b1220;
+      --bg-grad-2:#111827;
+      --glass-bg: rgba(17,24,39,0.66);
+      --glass-border: rgba(255,255,255,0.12);
+      --shadow: 0 12px 36px rgba(0,0,0,.45);
+      --btn-outline:#374151;
+      --sticky-bg: rgba(17,24,39,.8); /* NEW: better sticky background (dark) */
+    }
+    body {
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      min-height: 100vh;
+      background:
+        radial-gradient(1000px 600px at 20% 0%, rgba(34,139,34,.10), transparent 60%),
+        radial-gradient(1000px 600px at 80% 100%, rgba(65,105,225,.10), transparent 60%),
+        linear-gradient(135deg, var(--bg-grad-1), var(--bg-grad-2));
+      overflow-x: hidden;
+      opacity: 0;
+      transition: opacity .35s ease;
+    }
+    body.page-loaded{ opacity: 1; }
+
+    .page-title { font-weight: 700; }
+
+    .navbar, .card {
+      background: var(--glass-bg);
+      backdrop-filter: saturate(130%) blur(6px);
+      -webkit-backdrop-filter: saturate(130%) blur(6px);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--shadow);
+      border-radius: 14px;
+    }
+
+    .chart-wrap { height: 360px; }
+    .kpi-pill { font-size:.9rem; font-weight:600; }
+    .pill-green {background: rgba(34,139,34,.12); color: var(--snrt-green);}
+    .pill-red   {background: rgba(205,92,92,.12);  color: var(--snrt-red);}
+    .pill-orange{background: rgba(255,140,0,.12);  color: var(--snrt-orange);}
+    .pill-blue  {background: rgba(65,105,225,.12); color: var(--snrt-blue);}
+
+    .table { font-size: .92rem; color: var(--text); }
+    .sticky-head thead th {
+      position: sticky; top: 0;
+      background: var(--sticky-bg); /* FIX: no transparent overlap */
+      z-index: 2;
+      backdrop-filter: saturate(130%) blur(4px);
+      -webkit-backdrop-filter: saturate(130%) blur(4px);
+    }
+
+    .card { transition: transform .25s ease, box-shadow .25s ease; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(0,0,0,.12); }
+
+    .logo-wrap img { animation: breathe 6s ease-in-out infinite; }
+    @keyframes breathe {
+      0% { transform: scale(1); opacity: .98; }
+      50% { transform: scale(1.015); opacity: 1; }
+      100% { transform: scale(1); opacity: .98; }
+    }
+
+    .theme-toggle{ border-color: var(--btn-outline) !important; }
+
+    /* Health panel (toggle) */
+    #healthWrapper { margin-top: 1rem; }
+    #healthPanel { transition: opacity .2s ease, transform .2s ease; }
+    #healthPanel.d-none { opacity: 0; transform: translateY(-4px); }
+
+    /* Modal charts */
+    .modal-xl { --bs-modal-width: min(1200px, 96vw); }
+    .mini-chart { height: 280px; }
+
+    /* Storytelling lists & sample table */
+    .toplist li { display:flex; justify-content:space-between; gap:.75rem; }
+    .toplist .count { color: var(--muted); }
+
+    /* JSON modal pretty area */
+    pre.jsonbox{
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 12px;
+      max-height: 60vh;
+      overflow: auto;
+      font-size: .875rem;
+      line-height: 1.45;
+    }
+
+    @media print {
+      .navbar, .btn, .badge, .logo-wrap, #healthWrapper { display: none !important; }
+      body { background: #fff !important; }
+      .card { box-shadow: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Logo SNRT -->
+  <div class="text-center py-4 logo-wrap">
+    <img src="{% static 'images/snrt_logo.jpg' %}" alt="Logo SNRT" height="90">
+  </div>
+
+  <nav class="navbar navbar-expand-lg border-0 mx-3 mb-2">
+    <div class="container">
+      <span class="navbar-brand fw-semibold">SNRT – Tableau de bord KPI</span>
+      <span class="badge text-bg-secondary">Django</span>
+
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <button id="themeToggle" class="btn btn-outline-secondary btn-sm theme-toggle" type="button" aria-label="Basculer le thème">
+          <span id="themeIcon" aria-hidden="true">🌙</span>
+        </button>
+
+        {% if request.user.is_authenticated %}
+          <span class="text-muted small">Connecté : <strong>{{ request.user.username }}</strong></span>
+          <form method="post" action="{% url 'logout' %}" class="d-inline-block">
+            {% csrf_token %}
+            <button class="btn btn-outline-danger btn-sm" type="submit">Déconnexion</button>
+          </form>
+        {% else %}
+          <a class="btn btn-outline-primary btn-sm" href="{% url 'login' %}?next={% url 'dashboard' %}">Connexion</a>
+        {% endif %}
+      </div>
+    </div>
+  </nav>
+
+  <main class="container my-4">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h1 class="page-title h3 m-0">Aperçu des indicateurs</h1>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'download_excel' %}">Télécharger (Excel)</a>
+        <button id="printPdfBtn" class="btn btn-outline-secondary btn-sm">Imprimer / PDF</button>
+        <button id="checkHealthBtn" class="btn btn-outline-info btn-sm" aria-expanded="false">Vérifier les données</button>
+      </div>
+    </div>
+
+    <!-- Barre de contrôle -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="row g-2 align-items-end">
+
+          <div class="col-6 col-md-2">
+            <label class="form-label text-muted">Vue</label>
+            <select id="limitSelect" class="form-select form-select-sm">
+              <option value="5">Top 5</option>
+              <option value="10">Top 10</option>
+              <option value="15" selected>Top 15</option>
+              <option value="20">Top 20</option>
+              <option value="25">Top 25</option>
+              <option value="30">Top 30</option>
+              <option value="35">Top 35</option>
+              <option value="40">Top 40</option>
+              <option value="45">Top 45</option>
+              <option value="50">Top 50</option>
+              <option value="all">Tous</option>
+            </select>
+          </div>
+
+          <div class="col-6 col-md-2">
+            <label class="form-label text-muted">Actualisation auto</label>
+            <select id="refreshSelect" class="form-select form-select-sm">
+              <option value="0" selected>Désactivée</option>
+              <option value="300000">Toutes les 5 min</option>
+              <option value="600000">Toutes les 10 min</option>
+              <option value="900000">Toutes les 15 min</option>
+              <option value="1800000">Toutes les 30 min</option>
+              <option value="2700000">Toutes les 45 min</option>
+            </select>
+          </div>
+
+          <div class="col-6 col-md-2">
+            <label class="form-label text-muted">Filtre famille (ID)</label>
+            <input id="familyFilter" type="text" class="form-control form-control-sm" placeholder="ex : 2" list="familyOptions">
+          </div>
+          <datalist id="familyOptions">
+            <option value="1"><option value="2"><option value="3"><option value="4"><option value="5">
+            <option value="6"><option value="7"><option value="8"><option value="9"><option value="10"><option value="12">
+          </datalist>
+
+          <div class="col-6 col-md-2">
+            <label class="form-label text-muted">Filtre site (ID)</label>
+            <input id="siteFilter" type="text" class="form-control form-control-sm" placeholder="ex : 222" list="siteOptions">
+          </div>
+          <datalist id="siteOptions">
+            <option value="3"><option value="5"><option value="25"><option value="28"><option value="33"><option value="44">
+            <option value="54"><option value="64"><option value="77"><option value="105"><option value="115"><option value="116">
+            <option value="177"><option value="187"><option value="211"><option value="212"><option value="221"><option value="222">
+            <option value="237"><option value="259">
+          </datalist>
+
+          <div class="col-6 col-md-2">
+            <label class="form-label text-muted">Filtre utilisateurs </label>
+            <input id="userFilter" type="text" class="form-control form-control-sm" placeholder="ex : b.haddad" list="userOptions">
+          </div>
+          <datalist id="userOptions">
+            {% for login in user_logins %}
+              <option value="{{ login }}">
+            {% endfor %}
+          </datalist>
+
+          <div class="col-6 col-md-2">
+            <label class="form-label text-muted">Filtre station </label>
+            <input id="stationFilter" name="station" type="text" class="form-control form-control-sm" placeholder="ex : 2319" list="stationOptions" value="{{ request.GET.station|default_if_none:'' }}">
+          </div>
+          <datalist id="stationOptions">
+            {% for sid in station_ids %}
+              <option value="{{ sid }}">
+            {% endfor %}
+          </datalist>
+
+          <div class="col-12 mt-2 d-flex flex-wrap gap-2">
+            <button id="applyFilters" class="btn btn-primary btn-sm">Appliquer</button>
+            <button id="clearFilters" class="btn btn-outline-secondary btn-sm" type="button">Réinitialiser</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Health panel -->
+    <div id="healthWrapper">
+      <div id="healthPanel" class="card d-none" aria-live="polite">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start">
+            <h6 class="fw-semibold mb-2">État des données</h6>
+            <button id="closeHealthBtn" class="btn btn-sm btn-outline-secondary" type="button">Fermer</button>
+          </div>
+          <div id="healthContent" class="small text-muted">
+            Analyse en cours…
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grille des graphiques -->
+    <div class="row g-3">
+      <div class="col-12 col-lg-6">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between">
+              <h5 class="card-title mb-2">Stations par famille</h5>
+              <span class="badge kpi-pill pill-green">Top (limite)</span>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="familyChart" aria-label="Stations par famille" role="img"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-6">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between">
+              <h5 class="card-title mb-2">Stations par site</h5>
+              <span class="badge kpi-pill pill-red">Top (limite)</span>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="siteChart" aria-label="Stations par site" role="img"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-6">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between">
+              <h5 class="card-title mb-2">Stations par utilisateur</h5>
+              <span class="badge kpi-pill pill-orange">Top (limite)</span>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="userChart" aria-label="Stations par utilisateur" role="img"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Équipements par station (clickable bars) -->
+      <div class="col-12 col-lg-6">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between">
+              <div>
+                <h5 class="card-title mb-0">Équipements par station</h5>
+                <div class="text-muted small">Astuce : cliquez une barre pour voir le détail (désignation, famille, sous-famille, lieu).</div>
+              </div>
+              <span class="badge kpi-pill pill-blue">Top (limite)</span>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="eqptChart" style="cursor:pointer" aria-label="Équipements par station" role="img"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Predictions -->
+    <div class="mt-4">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <div>
+              <h5 class="card-title mb-0">Prédiction : centres sans station</h5>
+              <div class="text-muted small">Classement des sites avec probabilité d’être <em>sans station</em>, selon les signaux disponibles.</div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge kpi-pill pill-blue">IA (Logistic Regression)</span>
+              <select id="predTopSelect" class="form-select form-select-sm" style="width:auto">
+                <option value="5">Top 5</option>
+                <option value="10" selected>Top 10</option>
+                <option value="20">Top 20</option>
+                <option value="50">Top 50</option>
+                <option value="all">Tous</option>
+              </select>
+              <button id="refreshPredBtn" class="btn btn-outline-secondary btn-sm">Actualiser</button>
+              <button id="exportPredBtn" class="btn btn-outline-secondary btn-sm">Exporter CSV</button>
+            </div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-12 col-lg-6">
+              <div class="chart-wrap">
+                <canvas id="predNoStationChart" aria-label="Probabilité sans station" role="img"></canvas>
+              </div>
+            </div>
+            <div class="col-12 col-lg-6">
+              <div class="table-responsive" style="max-height:360px; overflow:auto;">
+                <table class="table table-sm table-striped mb-0">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Site</th>
+                      <th>Region</th>
+                      <th>Province</th>
+                      <th>Probabilité</th>
+                      <th>Raison (storytelling)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="predTableBody"></tbody>
+                </table>
+              </div>
+              <div class="text-muted small mt-2" id="predSummary">—</div>
+              <div class="text-muted small" id="predUpdated"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- /Predictions -->
+
+    <!-- Modal: Détails des équipements par station -->
+    <div class="modal fade" id="stationDetailModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="stationDetailTitle">Station — Détails équipements</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+          </div>
+          <div class="modal-body">
+            <div id="stationDetailLoading" class="text-center my-4">
+              <div class="spinner-border" role="status" aria-hidden="true"></div>
+              <div class="mt-2 small text-muted">Chargement…</div>
+            </div>
+
+            <div id="stationDetailContent" class="d-none">
+              <div class="row g-3">
+                <div class="col-12">
+                  <div class="alert alert-secondary py-2 mb-2">
+                    <span id="stationDetailSummary"></span>
+                  </div>
+                </div>
+
+                <div class="col-12 col-lg-6">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="d-flex align-items-center justify-content-between">
+                        <h6 class="mb-2">Par désignation</h6>
+                        <span class="badge kpi-pill pill-blue">Noms</span>
+                      </div>
+                      <div class="mini-chart"><canvas id="stDesChart"></canvas></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-12 col-lg-6">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="d-flex align-items-center justify-content-between">
+                        <h6 class="mb-2">Par famille</h6>
+                        <span class="badge kpi-pill pill-green">Noms</span>
+                      </div>
+                      <div class="mini-chart"><canvas id="stFamChart"></canvas></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-12 col-lg-6">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="d-flex align-items-center justify-content-between">
+                        <h6 class="mb-2">Par sous-famille</h6>
+                        <span class="badge kpi-pill pill-orange">Noms</span>
+                      </div>
+                      <div class="mini-chart"><canvas id="stSubChart"></canvas></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-12 col-lg-6">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="d-flex align-items-center justify-content-between">
+                        <h6 class="mb-2">Par lieu</h6>
+                        <span class="badge kpi-pill pill-red">Noms</span>
+                      </div>
+                      <div class="mini-chart"><canvas id="stLocChart"></canvas></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Storytelling lists + sample rows -->
+                <div class="col-12">
+                  <div class="card">
+                    <div class="card-body">
+                      <h6 class="mb-2">Principaux éléments</h6>
+                      <div id="stationTopLists" class="row g-3"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-12">
+                  <div class="card">
+                    <div class="card-body">
+                      <div class="d-flex align-items-center justify-content-between">
+                        <h6 class="mb-2">Échantillon d’équipements (20 premières lignes)</h6>
+                        <span class="text-muted small" id="sampleCount"></span>
+                      </div>
+                      <div class="table-responsive">
+                        <table class="table table-sm table-striped mb-0">
+                          <thead id="stationSampleHead"></thead>
+                          <tbody id="stationSampleBody"></tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- /Storytelling -->
+              </div>
+            </div>
+
+            <div id="stationDetailError" class="alert alert-danger d-none my-3"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- JSON viewer modal (for debugging) -->
+    <div class="modal fade" id="stationJsonModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title">Payload JSON — Station</h6>
+            <div class="d-flex align-items-center gap-2">
+              <button id="copyStationJsonBtn" type="button" class="btn btn-outline-secondary btn-sm">Copier</button>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <pre id="stationJsonPre" class="jsonbox mb-0">{}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tables -->
+    <div class="mt-4">
+      <h2 class="h5 mb-3">Détails (tables complètes)</h2>
+      {% if tables %}
+        {% for title, table_html in tables.items %}
+          <div class="card mb-3">
+            <div class="card-body">
+              <h6 class="fw-semibold mb-2">{{ title }}</h6>
+              <div class="table-responsive sticky-head">
+                {{ table_html|safe }}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="alert alert-warning">Aucune donnée disponible.</div>
+      {% endif %}
+    </div>
+  </main>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Plugins -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+
+  <script>
+    // Safe registration of Chart.js plugins
+    (function(){
+      try{
+        if (window.ChartDataLabels && Chart?.register) Chart.register(window.ChartDataLabels);
+      }catch(e){}
+      try{
+        const Ann = window['chartjs-plugin-annotation'];
+        if (Ann && Chart?.register) Chart.register(Ann);
+      }catch(e){}
+    })();
+
+    // Theme + transitions
+    (function(){
+      const saved = localStorage.getItem('snrt-theme');
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = saved || (prefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+      const icon = document.getElementById('themeIcon');
+      if(icon) icon.textContent = theme === 'dark' ? '☀️' : '🌙';
+
+      const toggle = document.getElementById('themeToggle');
+      if(toggle){
+        toggle.addEventListener('click', () => {
+          const current = document.documentElement.getAttribute('data-theme') || 'light';
+          const next = current === 'light' ? 'dark' : 'light';
+          document.documentElement.setAttribute('data-theme', next);
+          localStorage.setItem('snrt-theme', next);
+          if(icon) icon.textContent = next === 'dark' ? '☀️' : '🌙';
+        });
+      }
+
+      window.addEventListener('DOMContentLoaded', () => {
+        document.body.classList.add('page-loaded');
+      });
+
+      // Fade-out on internal links (non-download)
+      document.addEventListener('click', (e) => {
+        const a = e.target.closest('a');
+        if(!a) return;
+        const href = a.getAttribute('href') || '';
+        const same = href && !href.startsWith('http') && !href.startsWith('#') && !a.hasAttribute('download');
+        if(same){
+          e.preventDefault();
+          document.body.classList.remove('page-loaded');
+          setTimeout(()=>{ window.location.href = href; }, 250);
+        }
+      });
+    })();
+
+    // Chart helpers
+    function buildGradient(ctx, color) {
+      const g = ctx.createLinearGradient(0, 0, 0, 320);
+      const map = {
+        'green':   ['rgba(34,139,34,0.85)',  'rgba(34,139,34,0.08)'],
+        'red':     ['rgba(205,92,92,0.85)',  'rgba(205,92,92,0.08)'],
+        'orange':  ['rgba(255,140,0,0.85)',  'rgba(255,140,0,0.08)'],
+        'blue':    ['rgba(65,105,225,0.85)', 'rgba(65,105,225,0.08)']
+      };
+      const [top, bottom] = map[color] || ['rgba(0,0,0,.7)', 'rgba(0,0,0,.05)'];
+      g.addColorStop(0, top); g.addColorStop(1, bottom);
+      return g;
+    }
+    function topNDescending(labels, values, n) {
+      const arr = labels.map((label, i) => ({ label, value: Number(values[i]) || 0 }));
+      arr.sort((a, b) => b.value - a.value);
+      if (!n || n === 'all') return { labels: arr.map(x => x.label), values: arr.map(x => x.value) };
+      const sliced = arr.slice(0, Number(n));
+      return { labels: sliced.map(x => x.label), values: sliced.map(x => x.value) };
+    }
+    function truncate(s, max = 32){ s = String(s ?? ''); return s.length > max ? s.slice(0, max - 1) + '…' : s; }
+    function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    let charts = {};
+    let refreshTimer = null;
+
+    const limitSelect   = document.getElementById('limitSelect');
+    const refreshSelect = document.getElementById('refreshSelect');
+    const siteFilter    = document.getElementById('siteFilter');
+    const familyFilter  = document.getElementById('familyFilter');
+    const userFilter    = document.getElementById('userFilter');
+    const stationFilter = document.getElementById('stationFilter');
+    const applyBtn      = document.getElementById('applyFilters');
+    const clearBtn      = document.getElementById('clearFilters');
+    const printBtn      = document.getElementById('printPdfBtn');
+
+    if (printBtn){ printBtn.addEventListener('click', () => window.print()); }
+    ;[userFilter, stationFilter].forEach(el => { if (el && el.showPicker) el.addEventListener('focus', () => el.showPicker()); });
+
+    function destroyCharts() { Object.values(charts).forEach(ch => { try { ch.destroy(); } catch(e){} }); charts = {}; }
+
+    function buildBarChart(canvasId, dataset, baseColorKey, horizontal=false) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const grad = buildGradient(ctx, baseColorKey);
+
+      // axis label truncation fix:
+      const axisForNames = horizontal ? 'y' : 'x';
+
+      return new Chart(ctx, {
+        type: 'bar',
+        data: { labels: dataset.labels, datasets: [{ data: dataset.values, backgroundColor: grad, borderColor: 'rgba(0,0,0,0)', borderWidth: 0, borderRadius: 8 }] },
+        options: {
+          indexAxis: horizontal ? 'y' : 'x',
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 900, easing: 'easeOutQuart' },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: 'rgba(0,0,0,0.8)',
+              padding: 10, cornerRadius: 8,
+              callbacks: { title: (items) => (items && items[0] ? String(items[0].label) : ''), label: (ctx) => `${ctx.parsed[horizontal ? 'x' : 'y']}` }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                autoSkip: axisForNames === 'x',
+                maxRotation: axisForNames === 'x' ? 40 : 0,
+                minRotation: 0,
+                callback: axisForNames === 'x' ? (v, i, t) => truncate(t[i].label, 20) : undefined
+              },
+              grid: { display: false }
+            },
+            y: {
+              beginAtZero: true,
+              ticks: axisForNames === 'y'
+                ? { autoSkip: false, maxRotation: 0, minRotation: 0, callback: (v, i, t) => truncate(t[i].label, 28) }
+                : {},
+              grid: { color: 'rgba(0,0,0,.06)' }
+            }
+          }
+        }
+      });
+    }
+
+    async function loadKPIs() {
+      const limitVal = limitSelect ? limitSelect.value : '15';
+      const siteVal = siteFilter && siteFilter.value.trim() !== '' ? siteFilter.value.trim() : '';
+      const familyVal = familyFilter && familyFilter.value.trim() !== '' ? familyFilter.value.trim() : '';
+      const userVal = userFilter && userFilter.value.trim() !== '' ? userFilter.value.trim() : '';
+      const stationVal = stationFilter && stationFilter.value.trim() !== '' ? stationFilter.value.trim() : '';
+
+      const params = new URLSearchParams();
+      params.set('limit', 'all');
+      if (siteVal)    params.set('site', siteVal);
+      if (familyVal)  params.set('family', familyVal);
+      if (userVal)    params.set('user', userVal);
+      if (stationVal) params.set('station', stationVal);
+
+      try {
+        const res = await fetch("{% url 'kpi_data' %}?" + params.toString());
+        const data = await res.json();
+
+        const fam  = topNDescending(data.family.labels, data.family.values, limitVal);
+        const site = topNDescending(data.site.labels,   data.site.values,   limitVal);
+        const user = topNDescending(data.user.labels,   data.user.values,   limitVal);
+        const eqpt = topNDescending(data.eqpt.labels,   data.eqpt.values,   limitVal);
+
+        destroyCharts();
+        charts.family = buildBarChart('familyChart', fam,  'green',  false);
+        charts.site   = buildBarChart('siteChart',   site, 'red',    false);
+        charts.user   = buildBarChart('userChart',   user, 'orange', false);
+        charts.eqpt   = buildBarChart('eqptChart',   eqpt, 'blue',   false);
+
+        wireEqptBarClicks();
+      } catch (e) {
+        console.error('Échec du chargement des KPI :', e);
+      }
+    }
+
+    function setupAutoRefresh() {
+      const ms = Number(refreshSelect.value || '0');
+      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+      if (ms > 0) { refreshTimer = setInterval(loadKPIs, ms); }
+    }
+
+    // --- Station detail modal logic ---
+    let stCharts = {};
+    function destroyStationCharts(){ Object.values(stCharts).forEach(ch => { try { ch.destroy(); } catch(e){} }); stCharts = {}; }
+
+    function buildMiniChart(canvasId, labels, values, colorKey){
+      const canvas = document.getElementById(canvasId);
+      if(!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const grad = buildGradient(ctx, colorKey);
+      return new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets: [{ data: values, backgroundColor: grad, borderWidth: 0, borderRadius: 8 }] },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display:false },
+            tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', callbacks: { title: (items)=> (items && items[0] ? String(items[0].label) : ''), label: (ctx)=> `${ctx.parsed.x}` } }
+          },
+          scales: {
+            x: { grid: { display:false }, beginAtZero:true },
+            y: { ticks: { callback: (v,i,t)=> truncate(t[i].label, 34), autoSkip:false }, grid: { color:'rgba(0,0,0,.06)' } }
+          }
+        }
+      });
+    }
+
+    function renderTopListBlock(title, arr){
+      if (!arr || !arr.length) return '';
+      const items = arr.map(it => `<li class="d-flex justify-content-between"><span class="text-truncate">${escapeHtml(it.label)}</span><span class="count">${it.count}</span></li>`).join('');
+      return `
+        <div class="col-12 col-md-6 col-xl-4">
+          <h6 class="text-muted small mb-2">${escapeHtml(title)}</h6>
+          <ol class="toplist ps-3 m-0">
+            ${items}
+          </ol>
+        </div>`;
+    }
+
+    function renderSampleTable(rows){
+      const head = document.getElementById('stationSampleHead');
+      const body = document.getElementById('stationSampleBody');
+      const count = document.getElementById('sampleCount');
+      head.innerHTML = ''; body.innerHTML = ''; count.textContent = '';
+
+      if(!rows || !rows.length){ count.textContent = 'Aucun échantillon'; return; }
+      const cols = Object.keys(rows[0]);
+      head.innerHTML = `<tr>${cols.map(c=>`<th>${escapeHtml(c)}</th>`).join('')}</tr>`;
+      body.innerHTML = rows.map(r => `<tr>${cols.map(c => `<td>${escapeHtml(r[c])}</td>`).join('')}</tr>`).join('');
+      count.textContent = `${rows.length} lignes`;
+    }
+
+    let __lastStationPayload = null;
+
+    async function openStationDetail(stationId){
+      const modalEl = document.getElementById('stationDetailModal');
+      const titleEl = document.getElementById('stationDetailTitle');
+      const loadEl  = document.getElementById('stationDetailLoading');
+      const contEl  = document.getElementById('stationDetailContent');
+      const errEl   = document.getElementById('stationDetailError');
+      const sumEl   = document.getElementById('stationDetailSummary');
+      const listsEl = document.getElementById('stationTopLists');
+
+      destroyStationCharts();
+      loadEl.classList.remove('d-none');
+      contEl.classList.add('d-none');
+      errEl.classList.add('d-none');
+      errEl.textContent = '';
+      titleEl.textContent = `Station ${stationId} — Détails équipements`;
+
+      const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      bsModal.show();
+
+      try{
+        const api = "{% url 'station_equipment_detail' %}";
+        const url = api + "?station=" + encodeURIComponent(stationId);
+        const res = await fetch(url, { credentials:'same-origin' });
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        const r = await res.json();
+
+        __lastStationPayload = r;
+
+        const I = r.insights || {};
+        const parts = [];
+        if (typeof r.total === 'number') parts.push(`<strong>${r.total}</strong> équipement(s) recensé(s).`);
+        if (I.top_designation && I.top_designation.label && I.top_designation.count)
+          parts.push(`Désignation dominante : <strong>${escapeHtml(I.top_designation.label)}</strong> (${I.top_designation.count}, ${I.top_designation.pct || 0}%).`);
+        if (I.top_family && I.top_family.label && I.top_family.count)
+          parts.push(`Famille dominante : <strong>${escapeHtml(I.top_family.label)}</strong> (${I.top_family.count}, ${I.top_family.pct || 0}%).`);
+        if (I.top_location && I.top_location.label && I.top_location.count)
+          parts.push(`Lieu principal : <strong>${escapeHtml(I.top_location.label)}</strong> (${I.top_location.count}, ${I.top_location.pct || 0}%).`);
+        if (I.top_model && I.top_model.label && I.top_model.count)
+          parts.push(`Modèle le plus fréquent : <strong>${escapeHtml(I.top_model.label)}</strong> (${I.top_model.count}).`);
+        sumEl.innerHTML = parts.join(' ');
+
+        const des = r.by_designation || {labels:[],values:[]};
+        const fam = r.by_family      || {labels:[],values:[]};
+        const sub = r.by_subfamily   || {labels:[],values:[]};
+        const loc = r.by_location    || {labels:[],values:[]};
+
+        stCharts.des = buildMiniChart('stDesChart', des.labels, des.values, 'blue');
+        stCharts.fam = buildMiniChart('stFamChart', fam.labels, fam.values, 'green');
+        stCharts.sub = buildMiniChart('stSubChart', sub.labels, sub.values, 'orange');
+        stCharts.loc = buildMiniChart('stLocChart', loc.labels, loc.values, 'red');
+
+        const TL = r.top_lists || {};
+        listsEl.innerHTML =
+            renderTopListBlock('Désignations', TL.designation) +
+            renderTopListBlock('Familles', TL.family) +
+            renderTopListBlock('Sous-familles', TL.subfamily) +
+            renderTopListBlock('Lieux', TL.location) +
+            renderTopListBlock('Modèles', TL.models) +
+            renderTopListBlock('Situations', TL.situations);
+
+        renderSampleTable(r.sample_rows || []);
+
+        loadEl.classList.add('d-none');
+        contEl.classList.remove('d-none');
+      }catch(e){
+        loadEl.classList.add('d-none');
+        errEl.textContent = `Impossible de charger le détail: ${String(e)}`;
+        errEl.classList.remove('d-none');
+      }
+    }
+
+    function wireEqptBarClicks(){
+      const canvas = document.getElementById('eqptChart');
+      if(!canvas || !charts.eqpt) return;
+      canvas.onclick = (evt) => {
+        const points = charts.eqpt.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+        if (!points || !points.length) return;
+        const idx = points[0].index;
+        const label = charts.eqpt.data.labels[idx];
+        const stationId = String(label).trim();
+        if(stationId) openStationDetail(stationId);
+      };
+      document.getElementById('stationDetailModal')?.addEventListener('hidden.bs.modal', destroyStationCharts);
+    }
+
+    // JSON viewer wiring
+    (function(){
+      const pre = document.getElementById('stationJsonPre');
+      const copyBtn = document.getElementById('copyStationJsonBtn');
+      copyBtn?.addEventListener('click', async ()=>{
+        try{
+          await navigator.clipboard.writeText(pre.textContent || '');
+          copyBtn.textContent = 'Copié ✓';
+          setTimeout(()=> copyBtn.textContent = 'Copier', 1200);
+        }catch(e){}
+      });
+    })();
+
+    // Listeners
+    if (limitSelect)   limitSelect.addEventListener('change', loadKPIs);
+    if (refreshSelect) refreshSelect.addEventListener('change', () => { setupAutoRefresh(); loadKPIs(); });
+    if (applyBtn)      applyBtn.addEventListener('click', () => { loadKPIs(); });
+    if (clearBtn)      clearBtn.addEventListener('click', () => {
+      if (siteFilter) siteFilter.value = '';
+      if (familyFilter) familyFilter.value = '';
+      if (userFilter) userFilter.value = '';
+      if (stationFilter) stationFilter.value = '';
+      loadKPIs();
+    });
+
+    // Init charts
+    loadKPIs();
+    setupAutoRefresh();
+
+    // -------- Data Health: toggle + fetch --------
+    (function(){
+      const btn    = document.getElementById('checkHealthBtn');
+      const panel  = document.getElementById('healthPanel');
+      const close  = document.getElementById('closeHealthBtn');
+      const body   = document.getElementById('healthContent');
+      let loadedOnce = false;
+
+      if(!btn || !panel || !body){
+        console.warn('Health panel elements missing in DOM.');
+        return;
+      }
+
+      const tag = (label, val) =>
+        `<span class="me-2">${label}:</span><span class="badge ${val ? 'text-bg-danger' : 'text-bg-success'}">${val}</span>`;
+      const metric = (label, val) =>
+        `<div class="me-3 mb-1 d-inline-block"><span class="text-muted">${label}:</span> <strong>${val}</strong></div>`;
+      const detailsList = (title, arr) => {
+        if (!arr || !arr.length) return '';
+        // Escape quotes for onClick copy
+        const joined = arr.map(String).join(', ').replace(/'/g, "\\'").replace(/"/g, '\\"');
+        return `
+          <details class="mt-2">
+            <summary>${title} (<strong>${arr.length}</strong>)</summary>
+            <div class="mt-1">
+              <code>${arr.map(escapeHtml).join(', ')}</code>
+              <div>
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-1"
+                        onclick="navigator.clipboard.writeText('${joined}')">
+                  Copier les IDs
+                </button>
+              </div>
+            </div>
+          </details>`;
+      };
+
+      async function loadHealth() {
+        body.textContent = 'Analyse en cours…';
+        try {
+          const res = await fetch("{% url 'data_health' %}", { credentials: 'same-origin' });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const r = await res.json();
+
+          const site = r.site_mapping || {};
+          const fam  = r.family_mapping || {};
+          const eqpt = r.equipment_mapping || {};
+          const lookup = r.equipment_lookup || {};
+
+          body.innerHTML = `
+            <div class="row g-2">
+              <div class="col-12 col-lg-6">
+                <div class="mb-2"><strong>Volumes</strong></div>
+                <div>Stations: <code>${r.rows.stations}</code>,
+                     Lignes familles: <code>${r.rows.families_rows}</code>,
+                     Lignes sites: <code>${r.rows.sites_rows}</code>,
+                     Lignes équipements (legacy): <code>${r.rows.eqpt_rows}</code>,
+                     Équipements (master): <code>${r.rows.equipment_master_rows ?? 0}</code></div>
+              </div>
+
+              <div class="col-12 col-lg-6">
+                <div class="mb-2"><strong>Stations</strong></div>
+                <div class="d-flex flex-wrap gap-2">
+                  ${tag('ID null', r.station.station_id_null)}
+                  ${tag('ID dupliqués', r.station.station_id_duplicates)}
+                  ${tag('Logins modifiés', r.station.configuser_changed_after_clean)}
+                  ${tag('Logins devenus vides', r.station.configuser_became_null_after_clean)}
+                  ${tag('Logins invalides', r.station.configuser_clean_invalid_pattern_count)}
+                </div>
+                ${detailsList('Logins invalides (exemples)', r.station.configuser_clean_invalid_examples || [])}
+              </div>
+
+              <div class="col-12 col-lg-6">
+                <div class="mb-2 mt-2"><strong>Sites</strong></div>
+                <div class="d-flex flex-wrap gap-2">
+                  ${tag('site_id non numériques', site.non_numeric_site_id_rows || 0)}
+                  ${tag('Stations avec plusieurs sites', site.stations_with_multiple_sites || 0)}
+                  ${tag('Lignes orphelines', (site.orphan_rows_station_ids_not_in_base || []).length)}
+                  ${tag('Stations sans site', (site.stations_missing_site_mapping || []).length)}
+                </div>
+                ${detailsList('Stations sans site', site.stations_missing_site_mapping || [])}
+                ${detailsList('Stations avec plusieurs sites (échantillon)', site.sample_stations_with_multiple_sites || [])}
+              </div>
+
+              <div class="col-12 col-lg-6">
+                <div class="mb-2 mt-2"><strong>Familles</strong></div>
+                <div class="d-flex flex-wrap gap-2">
+                  ${tag('family_id non numériques', fam.non_numeric_family_id_rows || 0)}
+                  ${tag('Stations avec plusieurs familles', fam.stations_with_multiple_families || 0)}
+                  ${tag('Lignes orphelines', (fam.orphan_rows_station_ids_not_in_base || []).length)}
+                  ${tag('Stations sans famille', (fam.stations_missing_family_mapping || []).length)}
+                </div>
+                ${detailsList('Stations sans famille', fam.stations_missing_family_mapping || [])}
+                ${detailsList('Stations avec plusieurs familles (échantillon)', fam.sample_stations_with_multiple_families || [])}
+              </div>
+
+              <div class="col-12">
+                <div class="mb-2 mt-2"><strong>Équipements (legacy station↔eqpt)</strong></div>
+                <div class="d-flex flex-wrap gap-2">
+                  ${tag('station_id non numériques', eqpt.non_numeric_station_id_rows_in_eqpt || 0)}
+                  ${tag('Lignes orphelines', (eqpt.orphan_rows_station_ids_not_in_base || []).length)}
+                  ${tag('Stations sans équipement', (eqpt.stations_missing_equipment_rows || []).length)}
+                </div>
+                ${detailsList('Stations sans équipement', eqpt.stations_missing_equipment_rows || [])}
+              </div>
+
+              <div class="col-12">
+                <div class="mb-2 mt-2"><strong>Équipements (master & référentiels)</strong></div>
+                <div class="mb-2">
+                  ${metric('Lignes master', lookup.rows_equipment ?? 0)}
+                  ${metric('station_id manquants', lookup.missing_station_id_rows ?? 0)}
+                </div>
+                <div class="mb-1">Couverture IDs (non nuls):</div>
+                <div class="d-flex flex-wrap gap-2">
+                  <span class="badge text-bg-secondary">fam: ${(lookup.pct_with_family_id ?? 0).toFixed(1)}%</span>
+                  <span class="badge text-bg-secondary">sub: ${(lookup.pct_with_subfamily_id ?? 0).toFixed(1)}%</span>
+                  <span class="badge text-bg-secondary">des: ${(lookup.pct_with_designation_id ?? 0).toFixed(1)}%</span>
+                  <span class="badge text-bg-secondary">loc: ${(lookup.pct_with_location_id ?? 0).toFixed(1)}%</span>
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-2">
+                  ${tag('Orphelins famille', lookup.family_orphans ?? 0)}
+                  ${tag('Orphelins sous-famille', lookup.subfamily_orphans ?? 0)}
+                  ${tag('Orphelins désignation', lookup.designation_orphans ?? 0)}
+                  ${tag('Orphelins lieu', lookup.location_orphans ?? 0)}
+                </div>
+              </div>
+            </div>
+            <div class="text-muted small mt-2">Astuce : cliquez pour développer, puis “Copier les IDs”.</div>
+          `;
+          loadedOnce = true;
+        } catch (e) {
+          body.innerHTML = `<span class="text-danger">Impossible de récupérer le rapport: ${String(e)}</span>`;
+        }
+      }
+
+      function showPanel(){
+        panel.classList.remove('d-none');
+        btn.textContent = 'Masquer les données';
+        btn.setAttribute('aria-expanded', 'true');
+        if(!loadedOnce) loadHealth();
+      }
+      function hidePanel(){
+        panel.classList.add('d-none');
+        btn.textContent = 'Vérifier les données';
+        btn.setAttribute('aria-expanded', 'false');
+      }
+
+      btn.addEventListener('click', () => {
+        if (panel.classList.contains('d-none')) showPanel(); else hidePanel();
+      });
+      close?.addEventListener('click', hidePanel);
+    })();
+
+    // ========= Predictions fetch + storytelling render =========
+    (function(){
+      const topSelect = document.getElementById('predTopSelect');
+      const refreshBtn = document.getElementById('refreshPredBtn');
+      const exportBtn  = document.getElementById('exportPredBtn');
+      const tableBody = document.getElementById('predTableBody');
+      const summaryEl = document.getElementById('predSummary');
+      const updatedEl = document.getElementById('predUpdated');
+
+      function toPct(p){ const x = Math.max(0, Math.min(1, Number(p||0))); return (x*100).toFixed(1) + '%'; }
+
+      function buildPredChart(labels, values){
+        const canvas = document.getElementById('predNoStationChart');
+        if(!canvas) return;
+        if(charts.pred){ try{ charts.pred.destroy(); }catch(e){} }
+        const ctx = canvas.getContext('2d');
+        const grad = buildGradient(ctx, 'blue');
+        charts.pred = new Chart(ctx, {
+          type: 'bar',
+          data: { labels, datasets:[{ data: values, backgroundColor: grad, borderWidth:0, borderRadius:8 }] },
+          options: {
+            indexAxis: 'y',
+            responsive: true, maintainAspectRatio: false,
+            animation: { duration: 900, easing: 'easeOutQuart' },
+            plugins: { 
+              legend:{display:false},
+              tooltip:{ backgroundColor:'rgba(0,0,0,0.8)',
+                callbacks:{ title:(it)=> (it&&it[0]? String(it[0].label):''), label:(ctx)=> `${toPct(ctx.parsed.x)}` } 
+              },
+              datalabels: {
+                anchor: 'end',
+                align: 'end',
+                formatter: (v)=> toPct(v),
+                clamp: true
+              },
+              annotation: {
+                annotations: {
+                  threshold80: {
+                    type: 'line',
+                    scaleID: 'x',
+                    value: 0.8,
+                    borderColor: 'red',
+                    borderDash: [6,6],
+                    borderWidth: 2,
+                    label: {
+                      display: true,
+                      content: 'Seuil 80%',
+                      color: 'red',
+                      position: 'start'
+                    }
+                  }
+                }
+              }
+            },
+            scales:{
+              x:{ min:0, max:1, grid:{color:'rgba(0,0,0,.06)'}, ticks:{ callback:(v)=> toPct(v) } },
+              y:{ grid:{ display:false }, ticks:{ autoSkip:false, callback:(v,i,t)=> truncate(t[i].label, 36) } }
+            }
+          }
+        });
+      }
+
+      function renderTable(rows){
+        tableBody.innerHTML = '';
+        if(!rows || !rows.length){
+          tableBody.innerHTML = `<tr><td colspan="6" class="text-muted">Aucune prédiction disponible.</td></tr>`;
+          summaryEl.textContent = '—';
+          if(updatedEl) updatedEl.textContent = '';
+          return;
+        }
+        const html = rows.map((r, idx) => {
+          const site = r.Site || r.site_name || r.site_id || '—';
+          const region = r.Region || '—';
+          const province = r.Province || '—';
+          const p = toPct(r.proba_no_station);
+          const reason = r.reason || r.story || r.explanation || '';
+          return `<tr>
+            <td>${idx+1}</td>
+            <td class="text-truncate" title="${escapeHtml(String(site))}">${escapeHtml(String(site))}</td>
+            <td>${escapeHtml(String(region))}</td>
+            <td>${escapeHtml(String(province))}</td>
+            <td><span class="badge text-bg-primary">${p}</span></td>
+            <td class="text-truncate" title="${escapeHtml(String(reason))}">${escapeHtml(String(reason))}</td>
+          </tr>`;
+        }).join('');
+        tableBody.innerHTML = html;
+
+        const avg = rows.reduce((s,r)=> s + Number(r.proba_no_station||0), 0) / rows.length;
+        const max = Math.max(...rows.map(r=> Number(r.proba_no_station||0)));
+        summaryEl.innerHTML = `Top ${rows.length} affiché(s) • Probabilité moyenne: <strong>${toPct(avg)}</strong> • Max: <strong>${toPct(max)}</strong>`;
+
+        if(updatedEl){
+          const dt = new Date();
+          updatedEl.textContent = 'Dernière mise à jour : ' + dt.toLocaleString('fr-FR');
+        }
+      }
+
+      async function loadPredictions(){
+        const top = (topSelect && topSelect.value) ? topSelect.value : '10';
+        const url = "{% url 'site_predictions' %}" + "?top=" + encodeURIComponent(top);
+        try{
+          const res = await fetch(url, { credentials:'same-origin' });
+          if(!res.ok) throw new Error('HTTP ' + res.status);
+          const data = await res.json();
+
+          const items = (data && (data.items || data.results || data)) || [];
+          const labels = items.map(r => String(r.Site || r.site_name || r.site_id));
+          const values = items.map(r => Number(r.proba_no_station || 0));
+
+          buildPredChart(labels, values);
+          renderTable(items);
+        }catch(e){
+          console.error('Échec chargement prédictions:', e);
+          renderTable([]);
+        }
+      }
+
+      topSelect?.addEventListener('change', loadPredictions);
+      refreshBtn?.addEventListener('click', loadPredictions);
+
+      // Export CSV
+      exportBtn?.addEventListener('click', () => {
+        const top = (topSelect && topSelect.value) ? topSelect.value : '10';
+        const url = "{% url 'site_predictions' %}" + "?top=" + encodeURIComponent(top) + "&format=csv";
+        window.location.href = url;
+      });
+
+      // initial load
+      loadPredictions();
+    })();
+    // ========= /Predictions =========
+  </script>
+</body>
+</html>
